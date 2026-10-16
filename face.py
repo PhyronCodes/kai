@@ -199,6 +199,7 @@ class FaceControl:
         self._state = mp.Value("i", 0, lock=False)       # index into STATES
         self._loudness = mp.Value("d", 0.0, lock=False)  # 0-1
         self._running = mp.Value("b", True, lock=False)
+        self._space_presses = mp.Value("i", 0, lock=False)  # counts up every press
 
     @property
     def state(self) -> str:
@@ -223,6 +224,13 @@ class FaceControl:
     @running.setter
     def running(self, value: bool) -> None:
         self._running.value = value
+
+    @property
+    def space_presses(self) -> int:
+        return self._space_presses.value
+
+    def press_space(self) -> None:
+        self._space_presses.value += 1
 
 
 def blink_openness(seconds_into_blink: float) -> float:
@@ -267,11 +275,13 @@ def run_face(control: FaceControl | None = None) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 control.running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                control.press_space()
             elif standalone and event.type == pygame.KEYDOWN and event.key in keys_to_states:
                 control.state = keys_to_states[event.key]
 
         state = control.state
-        pygame.display.set_caption(f"KAI - {state}")
+        pygame.display.set_caption(f"KAI - {state}  (space to talk)")
 
         # Ease every setting a little towards the current state's look
         target = STATE_LOOKS[state]

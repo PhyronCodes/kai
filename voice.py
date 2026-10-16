@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import time
 
 from audio import record_push_to_talk
 from face import FaceControl, run_face
@@ -7,14 +8,30 @@ from stt import transcribe
 from tts import speak
 
 
+def wait_for_space(face: FaceControl, prompt: str) -> None:
+    """Block until space is pressed in the face window (used instead of input)."""
+    print(prompt.replace("Enter", "space"))
+    presses_before = face.space_presses
+    while face.space_presses == presses_before:
+        if not face.running:
+            raise EOFError        # window closed: main() shuts everything down
+        time.sleep(0.02)
+
+
 def voice_loop(kai: Assistant, face: FaceControl) -> None:
     """Record, transcribe, think and speak, telling the face what KAI is doing."""
     def set_level(level: float) -> None:
         face.loudness = level
 
+    def wait(prompt: str = "") -> None:
+        wait_for_space(face, prompt)
+
     while face.running:
         face.state = "idle"
-        path = record_push_to_talk(on_start=lambda: setattr(face, "state", "listening"))
+        path = record_push_to_talk(
+            on_start=lambda: setattr(face, "state", "listening"),
+            wait=wait,
+        )
         if path is None:
             continue
 

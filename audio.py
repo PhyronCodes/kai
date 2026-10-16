@@ -6,11 +6,12 @@ SAMPLE_RATE = 16000
 NUM_CHANNELS = 1
 SAMPLE_TYPE = "int16"
 SAMPLE_WIDTH_BYTES = 2
-SILENCE_THRESHOLD = 300  
+SILENCE_THRESHOLD = 300
 
 
 def rms(audio) -> float:
     return float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+
 
 def save_wav(audio, path: str) -> str:
     with wave.open(path, "wb") as f:
@@ -27,7 +28,13 @@ def record_fixed(seconds: float, path: str = "recording.wav") -> str:
     sd.wait()
     return save_wav(audio, path)
 
-def record_push_to_talk(path: str = "recording.wav") -> str | None:
+
+def record_push_to_talk(path: str = "recording.wav", on_start=None, wait=input) -> str | None:
+    """Record between two key presses.
+
+    `wait` is whatever blocks until the key press: input (Enter in the
+    terminal) by default, or voice.py's wait_for_space (space in the face window).
+    """
     chunks = []
 
     def callback(indata, frames, time, status):
@@ -35,14 +42,16 @@ def record_push_to_talk(path: str = "recording.wav") -> str | None:
             print(status)
         chunks.append(indata.copy())
 
-    input("Press Enter to start recording...")
+    wait("Press Enter to start recording...")
+    if on_start is not None:
+        on_start()
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=NUM_CHANNELS,
         dtype=SAMPLE_TYPE,
         callback=callback,
     ):
-        input("Recording... press Enter to stop.")
+        wait("Recording... press Enter to stop.")
 
     if not chunks:
         return None
@@ -53,6 +62,7 @@ def record_push_to_talk(path: str = "recording.wav") -> str | None:
     if level < SILENCE_THRESHOLD:
         return None
     return save_wav(audio, path)
+
 
 if __name__ == "__main__":
     record_push_to_talk()
