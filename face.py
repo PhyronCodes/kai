@@ -1,3 +1,5 @@
+import multiprocessing as mp
+
 import numpy as np
 import pygame
 
@@ -169,11 +171,58 @@ def draw_frame(screen, head, t: float, look: dict, spin_angle: float,
     brightness = (0.2 + 0.8 * nearness) * look["glow"]
     order = np.argsort(z)[::-1]
 
+    # Work out every dot's colour, position and size in one go with numpy,
+    # then hand plain Python lists to pygame (much faster than per-dot numpy maths)
+    final_colours = np.minimum(colours * brightness[:, None], 255).astype(int)[order].tolist()
+    xs = screen_x[order].astype(int).tolist()
+    ys = screen_y[order].astype(int).tolist()
+    sizes = np.round(radius[order]).astype(int).tolist()
+
     screen.fill((0, 0, 0))
-    for i in order:
-        colour = np.minimum(colours[i] * brightness[i], 255).astype(int)
-        pygame.draw.circle(screen, colour, (int(screen_x[i]), int(screen_y[i])), int(round(radius[i])))
+    draw_circle = pygame.draw.circle
+    for colour, x, y, size in zip(final_colours, xs, ys, sizes):
+        draw_circle(screen, colour, (x, y), size)
     pygame.display.flip()
+
+
+STATES = ["idle", "listening", "thinking", "speaking"]
+
+
+class FaceControl:
+    """Shared between the face and the voice loop, even across processes.
+    The voice loop writes, the face reads, every frame.
+
+    The values live in shared memory (multiprocessing.Value), so the face can
+    run as a separate process with its own copy of Python."""
+
+    def __init__(self) -> None:
+        self._state = mp.Value("i", 0, lock=False)       # index into STATES
+        self._loudness = mp.Value("d", 0.0, lock=False)  # 0-1
+        self._running = mp.Value("b", True, lock=False)
+
+    @property
+    def state(self) -> str:
+        return STATES[self._state.value]
+
+    @state.setter
+    def state(self, name: str) -> None:
+        self._state.value = STATES.index(name)
+
+    @property
+    def loudness(self) -> float:
+        return self._loudness.value
+
+    @loudness.setter
+    def loudness(self, level: float) -> None:
+        self._loudness.value = level
+
+    @property
+    def running(self) -> bool:
+        return bool(self._running.value)
+
+    @running.setter
+    def running(self, value: bool) -> None:
+        self._running.value = value
 
 
 def blink_openness(seconds_into_blink: float) -> float:
@@ -183,7 +232,12 @@ def blink_openness(seconds_into_blink: float) -> float:
     return abs(1 - 2 * seconds_into_blink / BLINK_LENGTH)
 
 
-def main() -> None:
+def run_face(control: FaceControl | None = None) -> None:
+    """Run the face. With no control, keys 1-4 switch state for testing."""
+    standalone = control is None
+    if standalone:
+        control = FaceControl()
+
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("KAI")
@@ -192,14 +246,12 @@ def main() -> None:
 
     head = hide_eye_area(fibonacci_sphere(NUM_POINTS))
 
-    state = "idle"
-    look = dict(STATE_LOOKS[state])   # the current look, eased towards the target
+    look = dict(STATE_LOOKS["idle"])   # the current look, eased towards the target
     t = 0.0
     spin_angle = 0.0
     loudness = 0.0
     next_blink = rng.uniform(*BLINK_EVERY)
     blink_start = -1.0
-    running = True
 
     # For testing: keys 1-4 switch state
     keys_to_states = {
@@ -209,24 +261,29 @@ def main() -> None:
         pygame.K_4: "speaking",
     }
 
-    while running:
+    while control.running:
         dt = clock.tick(30) / 1000   # seconds since the last frame
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN and event.key in keys_to_states:
-                state = keys_to_states[event.key]
-                pygame.display.set_caption(f"KAI - {state}")
+                control.running = False
+            elif standalone and event.type == pygame.KEYDOWN and event.key in keys_to_states:
+                control.state = keys_to_states[event.key]
+
+        state = control.state
+        pygame.display.set_caption(f"KAI - {state}")
 
         # Ease every setting a little towards the current state's look
         target = STATE_LOOKS[state]
         for key in look:
             look[key] += (target[key] - look[key]) * EASING
 
-        # Mouth: moves only while speaking
-        target_loudness = 1.0 if state == "speaking" else 0.0
-        loudness += (target_loudness - loudness) * 0.2
+        # Mouth: follows KAI's voice while speaking (full wave when testing)
+        if state == "speaking":
+            target_loudness = 1.0 if standalone else control.loudness
+        else:
+            target_loudness = 0.0
+        loudness += (target_loudness - loudness) * 0.4
 
         # Blink now and then, but only when idle
         t += SWAY_SPEED
@@ -243,4 +300,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_face()
