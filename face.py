@@ -12,7 +12,6 @@ HEAD_COLOUR = (60, 160, 255)
 
 # Movement
 SWAY_SPEED = 0.02        # how fast time moves each frame
-SWAY_AMOUNT = 0.3        # how far the head turns either side (radians)
 
 # Eyes (particle iris around a dark pupil)
 LEFT_EYE_POS = (-0.35, 0.25)
@@ -20,9 +19,8 @@ RIGHT_EYE_POS = (0.35, 0.25)
 PUPIL_RADIUS = 0.06
 IRIS_RADIUS = 0.17
 IRIS_POINTS = 220        # particles per eye
-IRIS_SPIN = 0.3          # how fast the iris slowly swirls
-EYE_WIDTH = 1.4         # stretch sideways (1 = round)
-EYE_HEIGHT = 0.9         # squash vertically (1 = round)
+EYE_WIDTH = 1.45         # stretch sideways (1 = round)
+EYE_HEIGHT = 0.8         # squash vertically (1 = round)
 IRIS_INNER_COLOUR = (150, 230, 255)   # bright cyan at the pupil edge
 IRIS_OUTER_COLOUR = (40, 110, 230)    # deeper blue at the rim
 
@@ -36,6 +34,21 @@ IDLE_BAR = 0.012         # bar half-height when quiet
 SPEAKING_BAR = 0.14      # tallest bar half-height when speaking
 
 SURFACE_OFFSET = 1.01    # features sit just above the head's surface
+
+# How the face looks in each of KAI's states.
+#   pupil: pupil size multiplier   spin: iris swirl speed
+#   glow: brightness multiplier    sway: how much the head turns
+STATE_LOOKS = {
+    "idle":      {"pupil": 1.0, "spin": 0.3, "glow": 0.85, "sway": 0.40},
+    "listening": {"pupil": 1.6, "spin": 0.6, "glow": 1.15, "sway": 0.05},
+    "thinking":  {"pupil": 0.8, "spin": 3.0, "glow": 1.00, "sway": 0.15},
+    "speaking":  {"pupil": 1.1, "spin": 0.8, "glow": 1.10, "sway": 0.20},
+}
+EASING = 0.12            # how quickly the face moves towards a new look (0-1)
+
+# Blinking (idle only)
+BLINK_EVERY = (3.0, 7.0)   # seconds between blinks, chosen at random
+BLINK_LENGTH = 0.18        # seconds the eyes take to close and open
 
 
 def fibonacci_sphere(n: int) -> np.ndarray:
@@ -60,14 +73,17 @@ IRIS_ANGLES = EYE_RNG.uniform(0, 2 * np.pi, IRIS_POINTS)
 IRIS_SPARKLE = EYE_RNG.uniform(0.45, 1.0, IRIS_POINTS)    # each particle's own brightness
 
 
-def make_eye(centre: tuple[float, float], t: float) -> tuple[np.ndarray, np.ndarray]:
+def make_eye(centre: tuple[float, float], spin_angle: float,
+             pupil_scale: float, openness: float) -> tuple[np.ndarray, np.ndarray]:
     """A swirling oval of particles around a dark pupil, laid onto the sphere.
     Returns the points and a colour for each one."""
-    r = PUPIL_RADIUS + (IRIS_RADIUS - PUPIL_RADIUS) * IRIS_U
+    pupil = PUPIL_RADIUS * pupil_scale
+    r = pupil + (IRIS_RADIUS - pupil) * IRIS_U
     # Inner particles swirl faster than outer ones, like a vortex
-    angle = IRIS_ANGLES + IRIS_SPIN * t * (1.5 - IRIS_U)
+    angle = IRIS_ANGLES + spin_angle * (1.5 - IRIS_U)
     x = centre[0] + r * np.cos(angle) * EYE_WIDTH
-    y = centre[1] + r * np.sin(angle) * EYE_HEIGHT
+    # openness squashes the eye vertically: 1 = open, 0 = closed (a blink)
+    y = centre[1] + r * np.sin(angle) * EYE_HEIGHT * openness
 
     inner = np.array(IRIS_INNER_COLOUR, dtype=float)
     outer = np.array(IRIS_OUTER_COLOUR, dtype=float)
@@ -124,9 +140,10 @@ def project(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return screen_x, screen_y, z
 
 
-def draw_frame(screen, head, t: float, loudness: float) -> None:
-    left_eye, left_colours = make_eye(LEFT_EYE_POS, t)
-    right_eye, right_colours = make_eye(RIGHT_EYE_POS, t)
+def draw_frame(screen, head, t: float, look: dict, spin_angle: float,
+               openness: float, loudness: float) -> None:
+    left_eye, left_colours = make_eye(LEFT_EYE_POS, spin_angle, look["pupil"], openness)
+    right_eye, right_colours = make_eye(RIGHT_EYE_POS, spin_angle, look["pupil"], openness)
     mouth = make_mouth(t, loudness)
 
     # Put every dot in one array, with a colour and size adjustment for each
@@ -143,20 +160,27 @@ def draw_frame(screen, head, t: float, loudness: float) -> None:
         np.full(len(mouth), -1.2),
     ))
 
-    angle = SWAY_AMOUNT * np.sin(t)
+    angle = look["sway"] * np.sin(t)
     rotated = points @ rotation_y(angle).T
     screen_x, screen_y, z = project(rotated)
 
     nearness = np.clip((1 - z) / 2, 0, 1)
     radius = np.maximum(1 + 2 * nearness + size_boost, 1)
-    brightness = 0.2 + 0.8 * nearness
+    brightness = (0.2 + 0.8 * nearness) * look["glow"]
     order = np.argsort(z)[::-1]
 
     screen.fill((0, 0, 0))
     for i in order:
-        colour = (colours[i] * brightness[i]).astype(int)
+        colour = np.minimum(colours[i] * brightness[i], 255).astype(int)
         pygame.draw.circle(screen, colour, (int(screen_x[i]), int(screen_y[i])), int(round(radius[i])))
     pygame.display.flip()
+
+
+def blink_openness(seconds_into_blink: float) -> float:
+    """1 when open, dipping to 0 halfway through the blink, then back to 1."""
+    if seconds_into_blink >= BLINK_LENGTH:
+        return 1.0
+    return abs(1 - 2 * seconds_into_blink / BLINK_LENGTH)
 
 
 def main() -> None:
@@ -164,25 +188,56 @@ def main() -> None:
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("KAI")
     clock = pygame.time.Clock()
+    rng = np.random.default_rng()
 
     head = hide_eye_area(fibonacci_sphere(NUM_POINTS))
 
+    state = "idle"
+    look = dict(STATE_LOOKS[state])   # the current look, eased towards the target
     t = 0.0
+    spin_angle = 0.0
     loudness = 0.0
+    next_blink = rng.uniform(*BLINK_EVERY)
+    blink_start = -1.0
     running = True
 
+    # For testing: keys 1-4 switch state
+    keys_to_states = {
+        pygame.K_1: "idle",
+        pygame.K_2: "listening",
+        pygame.K_3: "thinking",
+        pygame.K_4: "speaking",
+    }
+
     while running:
+        dt = clock.tick(30) / 1000   # seconds since the last frame
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN and event.key in keys_to_states:
+                state = keys_to_states[event.key]
+                pygame.display.set_caption(f"KAI - {state}")
 
-        # For testing: hold SPACE to pretend KAI is speaking
-        target = 1.0 if pygame.key.get_pressed()[pygame.K_SPACE] else 0.0
-        loudness += (target - loudness) * 0.2  # ease towards the target smoothly
+        # Ease every setting a little towards the current state's look
+        target = STATE_LOOKS[state]
+        for key in look:
+            look[key] += (target[key] - look[key]) * EASING
 
+        # Mouth: moves only while speaking
+        target_loudness = 1.0 if state == "speaking" else 0.0
+        loudness += (target_loudness - loudness) * 0.2
+
+        # Blink now and then, but only when idle
         t += SWAY_SPEED
-        draw_frame(screen, head, t, loudness)
-        clock.tick(30)
+        spin_angle += look["spin"] * dt
+        seconds = pygame.time.get_ticks() / 1000
+        if state == "idle" and seconds >= next_blink:
+            blink_start = seconds
+            next_blink = seconds + rng.uniform(*BLINK_EVERY)
+        openness = blink_openness(seconds - blink_start) if blink_start >= 0 else 1.0
+
+        draw_frame(screen, head, t, look, spin_angle, openness, loudness)
 
     pygame.quit()
 
