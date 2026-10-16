@@ -1,0 +1,6 @@
+google-genai
+python-dotenv
+sounddevice
+numpy
+piper-tts
+pygame-ce
