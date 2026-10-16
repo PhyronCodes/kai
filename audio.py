@@ -1,0 +1,58 @@
+import sounddevice as sd
+import numpy as np
+import wave
+
+SAMPLE_RATE = 16000
+NUM_CHANNELS = 1
+SAMPLE_TYPE = "int16"
+SAMPLE_WIDTH_BYTES = 2
+SILENCE_THRESHOLD = 300  
+
+
+def rms(audio) -> float:
+    return float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+
+def save_wav(audio, path: str) -> str:
+    with wave.open(path, "wb") as f:
+        f.setnchannels(NUM_CHANNELS)
+        f.setsampwidth(SAMPLE_WIDTH_BYTES)
+        f.setframerate(SAMPLE_RATE)
+        f.writeframes(audio.tobytes())
+    return path
+
+
+def record_fixed(seconds: float, path: str = "recording.wav") -> str:
+    samples = int(SAMPLE_RATE * seconds)
+    audio = sd.rec(samples, samplerate=SAMPLE_RATE, channels=NUM_CHANNELS, dtype=SAMPLE_TYPE)
+    sd.wait()
+    return save_wav(audio, path)
+
+def record_push_to_talk(path: str = "recording.wav") -> str | None:
+    chunks = []
+
+    def callback(indata, frames, time, status):
+        if status:
+            print(status)
+        chunks.append(indata.copy())
+
+    input("Press Enter to start recording...")
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=NUM_CHANNELS,
+        dtype=SAMPLE_TYPE,
+        callback=callback,
+    ):
+        input("Recording... press Enter to stop.")
+
+    if not chunks:
+        return None
+
+    audio = np.concatenate(chunks)
+    level = rms(audio)
+    print(f"[debug] RMS: {level:.0f}")
+    if level < SILENCE_THRESHOLD:
+        return None
+    return save_wav(audio, path)
+
+if __name__ == "__main__":
+    record_push_to_talk()
