@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import string
 import time
 
 from audio import record_push_to_talk
@@ -6,6 +7,17 @@ from face import FaceControl, run_face
 from script import Assistant, GOODBYE
 from stt import transcribe
 from tts import speak
+
+
+QUIT_PHRASES = {"quit", "exit", "stop", "goodbye", "bye", "bye kai", "goodbye kai"}
+
+
+def is_quit(message: str) -> bool:
+    """True if the whole message is just a quit phrase, e.g. "Goodbye, KAI."
+    Punctuation and capitals are ignored. A longer sentence that merely
+    contains "stop" (like "stop reminding me") doesn't count."""
+    cleaned = message.lower().translate(str.maketrans("", "", string.punctuation))
+    return " ".join(cleaned.split()) in QUIT_PHRASES
 
 
 def wait_for_space(face: FaceControl, prompt: str) -> None:
@@ -41,6 +53,12 @@ def voice_loop(kai: Assistant, face: FaceControl) -> None:
             continue
         print("You: " + user_message)
 
+        if is_quit(user_message):
+            face.state = "speaking"
+            speak(GOODBYE, on_level=set_level)
+            face.running = False      # closes the face and ends the loop
+            break
+
         response = kai.ask(user_message)
         print("KAI: " + response)
 
@@ -64,7 +82,7 @@ def main() -> None:
     finally:
         face.running = False          # tells the face window to close
         face_process.join(timeout=2)
-        print("\n" + GOODBYE)
+        print("\nKAI: " + GOODBYE)
 
 
 if __name__ == "__main__":
