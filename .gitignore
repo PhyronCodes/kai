@@ -8,3 +8,4 @@ __pycache__/
 # Large or personal files
 voices/
 *.wav
+tasks.json
