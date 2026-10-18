@@ -43,6 +43,47 @@ def list_tasks(include_done: bool = False) -> list[dict]:
     return tasks
 
 
+def due_tasks() -> tuple[list[dict], list[dict]]:
+    """Return (due_today, overdue): open tasks due today, and open tasks
+    whose due date has already passed."""
+    today = date.today().strftime('%Y-%m-%d')
+    tasks = list_tasks()
+    overdue = []
+    due_today = []
+    for t in tasks:
+        if t["due"] and t["due"] < today:
+            overdue.append(t)
+        elif t["due"] == today:
+            due_today.append(t)
+    return due_today, overdue
+
+
+def join_names(tasks: list[dict]) -> str:
+    """'A', 'A and B', or 'A, B and C'."""
+    names = [t["text"] for t in tasks]
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def briefing() -> str | None:
+    """A spoken summary of what's due, or None if nothing is."""
+    due_today, overdue = due_tasks()
+    if not due_today and not overdue:
+        return None
+
+    parts = []
+    if due_today:
+        n = len(due_today)
+        parts.append(f"You've got {n} {'task' if n == 1 else 'tasks'} due today: "
+                     f"{join_names(due_today)}.")
+    if overdue:
+        n = len(overdue)
+        parts.append(f"{n} {'task is' if n == 1 else 'tasks are'} overdue: "
+                     f"{join_names(overdue)}.")
+    return " ".join(parts)
+
+
 def complete_task(task_id: int) -> dict:
     """Mark a task as done and return it, or return an error."""
     tasks = load_tasks()
@@ -149,5 +190,7 @@ FUNCTIONS = {
 }
 
 if __name__ == "__main__":
-    print(json.dumps(TOOLS, indent=2))
-    print(FUNCTIONS["list_tasks"]())
+    add_task("Email Capula", date.today().isoformat())
+    add_task("Finish linear algebra sheet", date.today().isoformat())
+    add_task("Buy coffee", "2026-10-01")
+    print(briefing())

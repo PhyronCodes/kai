@@ -1,13 +1,17 @@
 import multiprocessing as mp
 import string
 import time
+from datetime import datetime
 
 from audio import record_push_to_talk
 from face import FaceControl, run_face
 from script import Assistant, GOODBYE
 from stt import transcribe
+from tasks import briefing
 from tts import speak
 
+
+BRIEFING_HOUR = 9      # the daily briefing happens at (or after) 9:00
 
 QUIT_PHRASES = {"quit", "exit", "stop", "goodbye", "bye", "bye kai", "goodbye kai"}
 
@@ -20,13 +24,45 @@ def is_quit(message: str) -> bool:
     return " ".join(cleaned.split()) in QUIT_PHRASES
 
 
-def wait_for_space(face: FaceControl, prompt: str) -> None:
-    """Block until space is pressed in the face window (used instead of input)."""
+class DailyBriefing:
+    """Says what's due once a day: at startup, and at BRIEFING_HOUR if KAI is
+    left running. Remembers the date of the last one so it never repeats."""
+
+    def __init__(self, face: FaceControl, set_level) -> None:
+        self.face = face
+        self.set_level = set_level
+        self.last_date = None
+
+    def is_due(self) -> bool:
+        now = datetime.now()
+        return now.hour >= BRIEFING_HOUR and self.last_date != now.date()
+
+    def give(self) -> None:
+        """Speak the briefing (if anything is due) and mark today as done.
+        A startup briefing before BRIEFING_HOUR doesn't count, so the 9:00
+        one still happens later."""
+        if datetime.now().hour >= BRIEFING_HOUR:
+            self.last_date = datetime.now().date()
+        text = briefing()
+        if text is None:
+            return
+        print("KAI: " + text)
+        self.face.state = "speaking"
+        speak(text, on_level=self.set_level)
+        self.face.state = "idle"
+
+
+def wait_for_space(face: FaceControl, prompt: str, daily: DailyBriefing | None = None) -> None:
+    """Block until space is pressed in the face window (used instead of input).
+    While KAI is idle, this is also where the daily briefing gets its chance."""
     print(prompt.replace("Enter", "space"))
     presses_before = face.space_presses
     while face.space_presses == presses_before:
         if not face.running:
             raise EOFError        # window closed: main() shuts everything down
+        if daily is not None and face.state == "idle" and daily.is_due():
+            daily.give()
+            presses_before = face.space_presses   # ignore presses during the briefing
         time.sleep(0.02)
 
 
@@ -35,8 +71,13 @@ def voice_loop(kai: Assistant, face: FaceControl) -> None:
     def set_level(level: float) -> None:
         face.loudness = level
 
+    daily = DailyBriefing(face, set_level)
+    daily.give()       # startup briefing
+
     def wait(prompt: str = "") -> None:
-        wait_for_space(face, prompt)
+        # face.state is "idle" only while waiting to start, never mid-recording,
+        # so the briefing can't interrupt you while you're talking
+        wait_for_space(face, prompt, daily)
 
     while face.running:
         face.state = "idle"
