@@ -4,7 +4,8 @@ import time
 from datetime import datetime
 
 from audio import record_push_to_talk
-from face import FaceControl, run_face
+from bar import run_bar
+from face import FaceControl
 from script import Assistant, GOODBYE
 from stt import transcribe
 from tasks import briefing
@@ -113,7 +114,7 @@ def main() -> None:
 
     # The face runs as its own process: a separate Python, so drawing the face
     # can never slow down recording or playback
-    face_process = mp.Process(target=run_face, args=(face,), daemon=True)
+    face_process = mp.Process(target=run_bar, args=(face,), daemon=True)
     face_process.start()
 
     try:
