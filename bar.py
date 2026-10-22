@@ -1,15 +1,17 @@
+import sys
+
 import numpy as np
 import pygame
 
 from face import STATES, FaceControl
 
-WIDTH, HEIGHT = 1280, 400          # the shape of a bar LCD
+WIDTH, HEIGHT = 1280, 400          # window size when not full screen (the shape of a bar LCD)
 BACKGROUND = (5, 8, 20)
 BAR_COLOUR = (190, 235, 255)      # the same pale blue as the mouth in face.py
 
 NUM_BARS = 64
 BAR_GAP = 6                        # pixels between bars
-MAX_HEIGHT = HEIGHT * 0.8          # tallest a bar can be
+MAX_HEIGHT_FRACTION = 0.8          # tallest a bar can be, as a fraction of the screen height
 MIN_HEIGHT = 6                     # so a "silent" bar is still a visible dot
 DOT_SPACING = 9                    # each bar is a column of dots, this far apart
 
@@ -33,7 +35,8 @@ SWEEP_SPEED = 0.7      # how fast the thinking pulse crosses the screen
 SWEEP_WIDTH = 0.08     # how wide the pulse is (as a fraction of the screen)
 
 
-def bar_heights(phase: float, t: float, look: dict, loudness: float) -> np.ndarray:
+def bar_heights(phase: float, t: float, look: dict, loudness: float,
+                screen_height: int) -> np.ndarray:
     """One height per bar, in pixels.
 
     phase drives the bouncing (it grows faster when look["speed"] is higher);
@@ -50,31 +53,38 @@ def bar_heights(phase: float, t: float, look: dict, loudness: float) -> np.ndarr
     bump = np.exp(-((x - centre) / SWEEP_WIDTH) ** 2)
 
     size = np.clip(level * wobble + look["sweep"] * bump, 0, 1)
-    return MIN_HEIGHT + (MAX_HEIGHT - MIN_HEIGHT) * envelope * size
+    max_height = screen_height * MAX_HEIGHT_FRACTION
+    return MIN_HEIGHT + (max_height - MIN_HEIGHT) * envelope * size
 
 
 def draw_bars(screen: pygame.Surface, heights: np.ndarray, glow: float) -> None:
     """Each bar is a column of dots, centred on the middle line, like face.py."""
+    width, height = screen.get_size()      # works for the window and for full screen
     colour = [min(255, int(c * glow)) for c in BAR_COLOUR]
-    bar_width = (WIDTH - BAR_GAP * (NUM_BARS + 1)) / NUM_BARS
+    bar_width = (width - BAR_GAP * (NUM_BARS + 1)) / NUM_BARS
     radius = max(2, int(bar_width * 0.35))
     for i, h in enumerate(heights):
         centre_x = BAR_GAP * (i + 1) + bar_width * i + bar_width / 2
         dots_each_side = int(h / 2 // DOT_SPACING)
         for k in range(-dots_each_side, dots_each_side + 1):
-            centre_y = HEIGHT / 2 + k * DOT_SPACING
+            centre_y = height / 2 + k * DOT_SPACING
             pygame.draw.circle(screen, colour, (centre_x, centre_y), radius)
 
 
-def run_bar(control: FaceControl | None = None) -> None:
+def run_bar(control: FaceControl | None = None, fullscreen: bool = False) -> None:
     """Run the bar display. With no control, keys 1-4 switch state for testing,
-    and speaking fakes a voice so you can see it move."""
+    and speaking fakes a voice so you can see it move.
+    fullscreen=True fills the whole screen (for the real device); Esc quits."""
     standalone = control is None
     if standalone:
         control = FaceControl()
 
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    if fullscreen:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)   # (0, 0) = the screen's own size
+        pygame.mouse.set_visible(False)
+    else:
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
 
     look = dict(STATE_LOOKS["idle"])
@@ -96,6 +106,8 @@ def run_bar(control: FaceControl | None = None) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 control.running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                control.running = False          # the way out of full screen
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 control.press_space()
             elif standalone and event.type == pygame.KEYDOWN and event.key in keys_to_states:
@@ -121,11 +133,12 @@ def run_bar(control: FaceControl | None = None) -> None:
         loudness += (raw - loudness) * 0.4
 
         screen.fill(BACKGROUND)
-        draw_bars(screen, bar_heights(phase, t, look, loudness), look["glow"])
+        heights = bar_heights(phase, t, look, loudness, screen.get_height())
+        draw_bars(screen, heights, look["glow"])
         pygame.display.flip()
 
     pygame.quit()
 
 
 if __name__ == "__main__":
-    run_bar()
+    run_bar(fullscreen="--fullscreen" in sys.argv)

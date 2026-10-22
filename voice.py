@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import string
+import sys
 import time
 from datetime import datetime
 
@@ -85,6 +86,7 @@ def voice_loop(kai: Assistant, face: FaceControl) -> None:
         path = record_push_to_talk(
             on_start=lambda: setattr(face, "state", "listening"),
             wait=wait,
+            on_level=set_level,      # the bar reacts to your voice while you talk
         )
         if path is None:
             continue
@@ -109,12 +111,13 @@ def voice_loop(kai: Assistant, face: FaceControl) -> None:
 
 
 def main() -> None:
+    fullscreen = "--fullscreen" in sys.argv     # python voice.py --fullscreen
     kai = Assistant()
     face = FaceControl()
 
     # The face runs as its own process: a separate Python, so drawing the face
     # can never slow down recording or playback
-    face_process = mp.Process(target=run_bar, args=(face,), daemon=True)
+    face_process = mp.Process(target=run_bar, args=(face, fullscreen), daemon=True)
     face_process.start()
 
     try:
