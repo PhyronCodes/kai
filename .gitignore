@@ -9,3 +9,4 @@ __pycache__/
 voices/
 *.wav
 tasks.json
+*.log

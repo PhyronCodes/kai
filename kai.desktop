@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=KAI
+Comment=Start KAI at login
+Exec=sh -c '$HOME/kai/start_kai.sh'
+Terminal=false
+X-GNOME-Autostart-enabled=true
