@@ -7,6 +7,7 @@ NUM_CHANNELS = 1
 SAMPLE_TYPE = "int16"
 SAMPLE_WIDTH_BYTES = 2
 SILENCE_THRESHOLD = 300
+MIC_FULL_SCALE = 2500     # a mic RMS this high or above counts as "fully loud" (speech is ~1300)
 
 
 def rms(audio) -> float:
@@ -29,11 +30,14 @@ def record_fixed(seconds: float, path: str = "recording.wav") -> str:
     return save_wav(audio, path)
 
 
-def record_push_to_talk(path: str = "recording.wav", on_start=None, wait=input) -> str | None:
+def record_push_to_talk(path: str = "recording.wav", on_start=None, wait=input,
+                        on_level=None) -> str | None:
     """Record between two key presses.
 
     `wait` is whatever blocks until the key press: input (Enter in the
     terminal) by default, or voice.py's wait_for_space (space in the face window).
+    `on_level`, if given, is called with the mic loudness (0 to 1) for every
+    chunk of audio, so the display can react to your voice live.
     """
     chunks = []
 
@@ -41,6 +45,8 @@ def record_push_to_talk(path: str = "recording.wav", on_start=None, wait=input) 
         if status:
             print(status)
         chunks.append(indata.copy())
+        if on_level is not None:
+            on_level(min(1.0, rms(indata) / MIC_FULL_SCALE))
 
     wait("Press Enter to start recording...")
     if on_start is not None:
@@ -52,6 +58,8 @@ def record_push_to_talk(path: str = "recording.wav", on_start=None, wait=input) 
         callback=callback,
     ):
         wait("Recording... press Enter to stop.")
+    if on_level is not None:
+        on_level(0.0)          # recording over: back to silence
 
     if not chunks:
         return None
