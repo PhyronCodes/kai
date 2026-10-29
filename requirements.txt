@@ -4,3 +4,4 @@ sounddevice
 numpy
 piper-tts
 pygame-ce
+vosk; platform_system == "Linux"

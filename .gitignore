@@ -10,3 +10,4 @@ voices/
 *.wav
 tasks.json
 *.log
+models/

@@ -4,13 +4,14 @@ import sys
 import time
 from datetime import datetime
 
-from audio import record_push_to_talk
+from audio import record_until_silence
 from bar import run_bar
 from face import FaceControl
 from script import Assistant, GOODBYE
 from stt import transcribe
 from tasks import briefing
 from tts import speak
+from wake import WakeWord
 
 
 BRIEFING_HOUR = 9      # the daily briefing happens at (or after) 9:00
@@ -54,20 +55,6 @@ class DailyBriefing:
         self.face.state = "idle"
 
 
-def wait_for_space(face: FaceControl, prompt: str, daily: DailyBriefing | None = None) -> None:
-    """Block until space is pressed in the face window (used instead of input).
-    While KAI is idle, this is also where the daily briefing gets its chance."""
-    print(prompt.replace("Enter", "space"))
-    presses_before = face.space_presses
-    while face.space_presses == presses_before:
-        if not face.running:
-            raise EOFError        # window closed: main() shuts everything down
-        if daily is not None and face.state == "idle" and daily.is_due():
-            daily.give()
-            presses_before = face.space_presses   # ignore presses during the briefing
-        time.sleep(0.02)
-
-
 def voice_loop(kai: Assistant, face: FaceControl) -> None:
     """Record, transcribe, think and speak, telling the face what KAI is doing."""
     def set_level(level: float) -> None:
@@ -75,18 +62,26 @@ def voice_loop(kai: Assistant, face: FaceControl) -> None:
 
     daily = DailyBriefing(face, set_level)
     daily.give()       # startup briefing
+    wake = WakeWord()
 
-    def wait(prompt: str = "") -> None:
-        # face.state is "idle" only while waiting to start, never mid-recording,
-        # so the briefing can't interrupt you while you're talking
-        wait_for_space(face, prompt, daily)
+    def briefing_if_due() -> bool:
+        """Called while KAI waits for the wake word. True if it spoke."""
+        if daily.is_due():
+            daily.give()
+            return True
+        return False
 
     while face.running:
         face.state = "idle"
-        path = record_push_to_talk(
-            on_start=lambda: setattr(face, "state", "listening"),
-            wait=wait,
+        print("Waiting for 'hey KAI' (or space)...")
+        wake.wait(face, on_idle=briefing_if_due)
+
+        # Listening: stops by itself when you go quiet, or early with space
+        face.state = "listening"
+        presses_at_start = face.space_presses
+        path = record_until_silence(
             on_level=set_level,      # the bar reacts to your voice while you talk
+            should_stop=lambda: face.space_presses != presses_at_start,
         )
         if path is None:
             continue
