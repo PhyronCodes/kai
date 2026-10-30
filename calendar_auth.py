@@ -21,8 +21,16 @@ CREDENTIALS_FILE = "credentials.json"   # downloaded from Google Cloud: identifi
 TOKEN_FILE = "token.json"               # created on first sign-in: identifies YOU. Keep secret.
 
 
-def get_service():
-    """Return a Calendar API client, signing in first if needed."""
+class NotSignedIn(Exception):
+    """There's no usable sign-in and we're not allowed to open a browser."""
+
+
+def get_service(interactive: bool = True):
+    """Return a Calendar API client, signing in first if needed.
+
+    interactive=False is for KAI itself: it must never open a browser in the
+    middle of a conversation (in full-screen device mode nobody would see it),
+    so it raises NotSignedIn instead."""
     creds = None
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
@@ -31,6 +39,8 @@ def get_service():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())                  # silent: no browser needed
         else:
+            if not interactive:
+                raise NotSignedIn("no valid token.json")
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)     # opens the browser to sign in
         with open(TOKEN_FILE, "w") as f:

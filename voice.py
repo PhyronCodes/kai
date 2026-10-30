@@ -9,6 +9,7 @@ from bar import run_bar
 from face import FaceControl
 from script import Assistant, GOODBYE
 from stt import transcribe
+from calendar_tools import calendar_briefing
 from tasks import briefing
 from tts import speak
 from wake import WakeWord
@@ -46,9 +47,11 @@ class DailyBriefing:
         one still happens later."""
         if datetime.now().hour >= BRIEFING_HOUR:
             self.last_date = datetime.now().date()
-        text = briefing()
-        if text is None:
+        # Today's calendar first, then what's due on the to-do list
+        parts = [p for p in (calendar_briefing(), briefing()) if p]
+        if not parts:
             return
+        text = " ".join(parts)
         print("KAI: " + text)
         self.face.state = "speaking"
         speak(text, on_level=self.set_level)
