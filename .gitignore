@@ -11,3 +11,5 @@ voices/
 tasks.json
 *.log
 models/
+credentials.json
+token.json
