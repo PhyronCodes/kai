@@ -23,16 +23,40 @@ MODEL_PATH = "models/vosk-model-small-en-us-0.15"
 SAMPLE_RATE = 16000
 CHUNK = 2000                           # an eighth of a second of audio
 
-# Everything Vosk is allowed to recognise. Single "kai"/"kay" are in the grammar
-# so they don't get mistaken for "hey kai", but on their own they don't wake KAI.
-GRAMMAR_WORDS = ["hey kai", "hey kay", "kay kai", "okay kai", "hi kai", "kai", "kay"]
-WAKE_PAIRS = {("hey", "kai"), ("hey", "kay"), ("kay", "kai"), ("okay", "kai"), ("hi", "kai")}
+# Everything Vosk is allowed to recognise. With only a few words, Vosk forces
+# ANY speech into the closest one, so a video saying "hey guys" could come out
+# as "hey kai". DECOYS are common sound-alikes: they give that speech somewhere
+# else to land. They never wake KAI; they just soak up near misses.
+WAKE_WORDS = ["hey kai", "hey kay", "kay kai", "kai", "kay"]
+DECOYS = [
+    "hey", "okay", "hi", "high", "guy", "guys", "sky", "buy", "by", "bye",
+    "cry", "try", "eye", "my", "why", "pay", "day", "say", "way", "they",
+    "key", "car", "cake", "case", "kind", "kite", "night", "right", "like",
+]
+GRAMMAR_WORDS = WAKE_WORDS + DECOYS
+WAKE_PAIRS = {("hey", "kai"), ("hey", "kay"), ("kay", "kai")}
+
+# Two extra checks before KAI wakes:
+STABLE_PARTIALS = 3      # a partial result must say "hey kai" this many chunks in a row (~0.4 s)
+MIN_CONFIDENCE = 0.80    # a final result's wake words must be at least this confident (0 to 1)
 
 
 def is_wake(text: str) -> bool:
     """True if two neighbouring words form a wake phrase, e.g. "hey kai"."""
     words = text.split()
     return any((a, b) in WAKE_PAIRS for a, b in zip(words, words[1:]))
+
+
+def confident_wake(result: dict) -> bool:
+    """For a final result: a wake pair whose words are both confident enough.
+    result["result"] lists each word with Vosk's confidence, e.g.
+    [{"word": "hey", "conf": 0.97}, {"word": "kai", "conf": 0.91}]"""
+    words = result.get("result", [])
+    for first, second in zip(words, words[1:]):
+        if ((first["word"], second["word"]) in WAKE_PAIRS
+                and min(first["conf"], second["conf"]) >= MIN_CONFIDENCE):
+            return True
+    return False
 
 
 class WakeWord:
@@ -50,6 +74,8 @@ class WakeWord:
             return self._wait_space_only(face, on_idle)
 
         recogniser = KaldiRecognizer(self.model, SAMPLE_RATE, json.dumps(GRAMMAR_WORDS + ["[unk]"]))
+        recogniser.SetWords(True)              # include per-word confidence in final results
+        stable = 0                             # how many partials in a row said "hey kai"
         chunks: queue.Queue[bytes] = queue.Queue()
 
         def callback(indata, frames, time, status):
@@ -69,6 +95,7 @@ class WakeWord:
                     while not chunks.empty():
                         chunks.get_nowait()
                     presses_before = face.space_presses
+                    stable = 0
                     continue
 
                 try:
@@ -76,14 +103,21 @@ class WakeWord:
                 except queue.Empty:
                     continue
 
-                # Check partial results too, so KAI wakes as soon as the phrase
-                # is said, without waiting for you to stop talking
                 if recogniser.AcceptWaveform(data):
-                    text = json.loads(recogniser.Result())["text"]
+                    # End of an utterance: check the words AND their confidence
+                    result = json.loads(recogniser.Result())
+                    stable = 0
+                    if confident_wake(result):
+                        print(f"[debug] woke on: {result['text']!r}")
+                        return "wake"
                 else:
-                    text = json.loads(recogniser.PartialResult())["partial"]
-                if is_wake(text):
-                    return "wake"
+                    # Mid-utterance: wake early only if "hey kai" holds steady,
+                    # so a one-chunk guess from background noise doesn't count
+                    partial = json.loads(recogniser.PartialResult())["partial"]
+                    stable = stable + 1 if is_wake(partial) else 0
+                    if stable >= STABLE_PARTIALS:
+                        print(f"[debug] woke on: {partial!r} (partial)")
+                        return "wake"
 
     def _wait_space_only(self, face, on_idle=None) -> str:
         import time
