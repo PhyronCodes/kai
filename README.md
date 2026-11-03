@@ -1,6 +1,8 @@
+Markdown · README.md
+
 # KAI — Knowledge & Automation Interface
 
-KAI is a hands-free desk assistant I built from scratch in Python. Say "hey KAI", ask a question or tell it something to do, and it answers out loud while a full-width waveform display shows what it's doing. It manages my to-do list, tells me what's due each morning, and starts by itself when the machine powers on.
+KAI is a hands-free desk assistant I built from scratch in Python. Say "hey KAI", ask a question or tell it something to do, and it answers out loud while a full-width waveform display shows what it's doing. It manages my to-do list and my Google Calendar, tells me what's on each morning, and starts by itself when the machine powers on.
 
 It currently runs on a 2012 Sony Vaio that I wiped and set up with Xubuntu as a dedicated device. The end goal is a small desk box with a bar-shaped screen across the front.
 
@@ -40,12 +42,15 @@ It currently runs on a 2012 Sony Vaio that I wiped and set up with Xubuntu as a 
 ## Running it
 
 1. Create a virtual environment and install the packages:
+
    ```
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
    ```
+
    On Linux you may also need PortAudio: `sudo apt install libportaudio2`.
 2. Download a Piper voice into `voices/`:
+
    ```
    mkdir -p voices && cd voices
    wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx
@@ -53,6 +58,7 @@ It currently runs on a 2012 Sony Vaio that I wiped and set up with Xubuntu as a 
    cd ..
    ```
 3. For the wake word (Linux), download the small English Vosk model into `models/`:
+
    ```
    mkdir -p models && cd models
    wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
@@ -60,6 +66,7 @@ It currently runs on a 2012 Sony Vaio that I wiped and set up with Xubuntu as a 
    cd ..
    ```
 4. Create a `.env` file with a Gemini API key (free from Google AI Studio):
+
    ```
    GEMINI_API_KEY=your-key-here
    ```
